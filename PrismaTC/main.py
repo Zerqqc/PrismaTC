@@ -692,10 +692,9 @@ class ManiaBotController:
 		original_position_keys = len(lane_positions) if lane_positions else cs_keys
 		original_lane_positions = lane_positions.copy()
 		
-		has_map_bug = original_position_keys > cs_keys
+		has_map_bug = original_position_keys != cs_keys
 		
 		if has_map_bug:
-      
 			hit_objects = remap_hit_objects_to_cs_positions(hit_objects, cs_keys)
 			
 			position_width = 512 / cs_keys
