@@ -369,6 +369,9 @@ class ManiaBotController:
 		try:
 			import win32gui
 			import win32process
+
+			if not self.reader or not self.reader.process_id:
+				return False
 			
 			hwnd = win32gui.GetForegroundWindow()
 			if not hwnd:
@@ -376,9 +379,9 @@ class ManiaBotController:
 			
 			_, pid = win32process.GetWindowThreadProcessId(hwnd)
 			
-			return pid == self.process_id
+			return pid == self.reader.process_id
 		except Exception:
-			return True
+			return False
 	
 	def _keyboard_listener(self) -> None:
 		if keyboard is None:
