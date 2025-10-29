@@ -3,6 +3,7 @@ import threading
 from typing import Optional, Callable
 from safe_print import safe_print
 import os
+from minimize_to_tray import TrayManager
 
 class ManiaGUI:
 	
@@ -20,6 +21,10 @@ class ManiaGUI:
 
 		self.title_bar_drag = False
 		self._running = False
+		self.tray_manager = TrayManager(
+			on_restore_callback=self._on_tray_restore,
+			on_exit_callback=self._on_tray_exit
+		)
 	
 	def initialize(self) -> None:
 		dpg.create_context()
@@ -85,7 +90,8 @@ class ManiaGUI:
 					dpg.add_image("icon_texture", width=20, height=20)
 					dpg.add_spacer(width=5)
 				dpg.add_text("PrismaTC", tag="title_text")
-				dpg.add_spacer(width=820 if dpg.does_item_exist("icon_texture") else 860)
+				dpg.add_spacer(width=760 if dpg.does_item_exist("icon_texture") else 810)
+				dpg.add_button(label="_", width=50, callback=self._minimize_to_tray, tag="minimize_button")
 				dpg.add_button(label="X", width=50, callback=self._exit_program, tag="x_button")
 			
 			dpg.add_separator()
@@ -222,6 +228,17 @@ class ManiaGUI:
 		self.log_message("Logs cleared.")
 	
 	def _exit_program(self, *args) -> None:
+		if self.on_exit:
+			self.on_exit()
+		self.stop()
+	
+	def _minimize_to_tray(self, *args) -> None:
+		self.tray_manager.minimize_to_tray()
+	
+	def _on_tray_restore(self) -> None:
+		pass
+	
+	def _on_tray_exit(self) -> None:
 		if self.on_exit:
 			self.on_exit()
 		self.stop()
@@ -368,6 +385,10 @@ class ManiaGUI:
 		self._running = True
 		dpg.show_viewport()
 		
+		import time
+		time.sleep(0.2)
+		self.tray_manager.find_window_handle("PrismaTC")
+		
 		while dpg.is_dearpygui_running():
 			self._handle_window_drag()
 			dpg.render_dearpygui_frame()
@@ -375,6 +396,7 @@ class ManiaGUI:
 	
 	def stop(self) -> None:
 		self._running = False
+		self.tray_manager.cleanup()
 		
 		if hasattr(dpg, "stop_dearpygui"):
 			dpg.stop_dearpygui()
