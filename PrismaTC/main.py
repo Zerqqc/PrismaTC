@@ -206,6 +206,7 @@ class ManiaBotController:
 
 		self.use_gui = use_gui
 		self.gui: Optional[ManiaGUI] = None
+		self.bot_enabled = True
 		if self.use_gui:
 			self.gui = ManiaGUI()
 			self.gui.on_start_bot = self._gui_start_bot
@@ -390,13 +391,30 @@ class ManiaBotController:
 		
 		while not self.shutdown:
 			try:
+				if self._is_osu_focused():
+					q_pressed = keyboard.is_pressed("q")
+					if q_pressed and not last_q_state:
+						self.bot_enabled = not self.bot_enabled
+						if self.bot_enabled:
+							self._log("Bot ENABLED (Q)", color=(100, 255, 100))
+							if self.gui:
+								self.gui.update_bot_status("Enabled - Ready")
+						else:
+							self._log("Bot DISABLED (Q)", color=(255, 100, 100))
+							if self.script_running:
+								self._stop_click_thread("bot disabled via Q")
+							if self.gui:
+								self.gui.update_bot_status("Disabled")
+					last_q_state = q_pressed
+				else:
+					last_q_state = False
+				
 				shortcuts_enabled = (
 					self.last_state == GameState.PLAY and 
 					self._is_osu_focused()
 				)
 				
 				if not shortcuts_enabled:
-					last_q_state = False
 					last_left_state = False
 					last_right_state = False
 					last_lbracket_state = False
@@ -404,15 +422,6 @@ class ManiaBotController:
 					time.sleep(0.05)
 					continue
 				
-				q_pressed = keyboard.is_pressed("q")
-				if q_pressed and not last_q_state:
-					if self.script_running:
-						self._log("Q pressed. Stopping bot...", color=(255, 255, 0))
-						self._stop_click_thread("manual stop (Q)")
-					else:
-						self._log("Q pressed. No active playback to stop.", color=(255, 255, 0))
-				last_q_state = q_pressed
-
 				left_pressed = keyboard.is_pressed("left")
 				if left_pressed and not last_left_state:
 					self.timing_shift -= 1
@@ -638,6 +647,10 @@ class ManiaBotController:
 			return
 
 		if self.resume_pending and not self.script_running:
+			if not self.bot_enabled:
+				self.resume_pending = False
+				return
+			
 			time_to_resume_target = self.resume_target_time - audio_time
 			
 			if abs(time_to_resume_target) <= 20:
@@ -650,7 +663,7 @@ class ManiaBotController:
 		self._log_timing_status(audio_time, time_to_first)
 
 		if not self.script_running:
-			if abs(time_to_first) <= 20:
+			if self.bot_enabled and abs(time_to_first) <= 20:
 				self._start_click_thread(audio_time, time_to_first)
 
 	def _prepare_session(self, beatmap, mods: Optional[MenuMods]) -> None:
@@ -737,15 +750,15 @@ class ManiaBotController:
 		self._log(f"  Title: {self.active_session.title}")
 		self._log(f"  Difficulty: {self.active_session.difficulty}")
 		self._log(f"  Map ID: {beatmap.map_id}")
-		self._log(f" FIXING map: Remapping {original_position_keys} unique positions to {cs_keys}K", color=(255, 200, 0))
-  
+		if has_map_bug:
+			self._log(f"  Map fixed: {original_position_keys} positions -> {cs_keys}K", color=(255, 200, 0))
 		
 		self._log(f"  First note: {first_hit_time_original} ms | Speed: {speed_multiplier:.2f}x")
 		
 		if self.gui:
 			error_message = ""
 			if has_map_bug:
-				error_message = f"THIS MAP WAS FIXED: remapped {original_position_keys} positions to {cs_keys} CS-positions"
+				error_message = f"Map fixed: {original_position_keys} positions -> {cs_keys}K"
 			
 			self.gui.update_beatmap_info(
 				title=self.active_session.title,
