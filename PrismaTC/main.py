@@ -748,7 +748,6 @@ class ManiaBotController:
 		)
 		self.last_timing_log = 0.0
 		
-		# Log map info
 		self._log(" ==[ ! ]== Prepared beatmap:")
 		self._log(f"  Title: {self.active_session.title}")
 		self._log(f"  Difficulty: {self.active_session.difficulty}")

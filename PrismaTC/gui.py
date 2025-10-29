@@ -2,6 +2,7 @@ import dearpygui.dearpygui as dpg
 import threading
 from typing import Optional, Callable
 from safe_print import safe_print
+import os
 
 class ManiaGUI:
 	
@@ -42,15 +43,11 @@ class ManiaGUI:
 		self.is_dragging = False
 	
 	def _load_icon_texture(self) -> None:
-		import os
-		try:
-			icon_path = os.path.join(os.path.dirname(__file__), "src", "logo.png")
-			if os.path.exists(icon_path):
-				width, height, channels, data = dpg.load_image(icon_path)
-				with dpg.texture_registry():
-					dpg.add_static_texture(width=width, height=height, default_value=data, tag="icon_texture")
-		except Exception as e:
-			safe_print(f"Could not load icon: {e}")
+		icon_path = os.path.join(os.path.dirname(__file__), "src", "logo.png")
+		if os.path.exists(icon_path):
+			width, height, channels, data = dpg.load_image(icon_path)
+			with dpg.texture_registry():
+				dpg.add_static_texture(width=width, height=height, default_value=data, tag="icon_texture")
 	
 	def _apply_theme(self) -> None:
 		with dpg.theme() as global_theme:
@@ -177,17 +174,13 @@ class ManiaGUI:
 	def _on_titlebar_mouse_down(self, *args) -> None:
 		if not dpg.is_mouse_button_down(0):
 			return
-		# Get mouse Y position
 		_, y = dpg.get_mouse_pos()
-		self.title_bar_drag = (-2 <= y <= 25)  # Increased range for better detection
-		print(f"Titlebar mouse down: y={y}, drag_enabled={self.title_bar_drag}")
+		self.title_bar_drag = (-2 <= y <= 25)
 	
 	def _on_titlebar_drag(self, *args) -> None:
 		if not self.title_bar_drag:
 			return
 		
-		print(f"Drag event: args={args}")
-		# Extract drag data - can be in different formats
 		data = args[-1] if args else None
 		if isinstance(data, (list, tuple)):
 			if len(data) >= 3:
@@ -195,15 +188,12 @@ class ManiaGUI:
 			elif len(data) == 2:
 				dx, dy = data[0], data[1]
 			else:
-				print(f"Invalid data format: {data}")
 				return
 		else:
-			print(f"Data not list/tuple: {data}")
 			return
 		
 		pos = dpg.get_viewport_pos()
 		new_x, new_y = pos[0] + dx, pos[1] + dy
-		print(f"Moving viewport from {pos} to ({new_x}, {new_y})")
 		dpg.configure_viewport(self.viewport, x_pos=new_x, y_pos=new_y)
 	
 	def _start_bot_clicked(self, *args) -> None:
@@ -239,17 +229,13 @@ class ManiaGUI:
 	def log_message(self, message: str, color: tuple = (255, 255, 255)) -> None:
 		safe_print(message)
 		
-		try:
-			import dearpygui.dearpygui as dpg
-			if dpg.does_item_exist("log_content"):
-				self.log_entry_count += 1
-				text_id = dpg.add_text(message, parent="log_content", tag=f"log_entry_{self.log_entry_count}")
-				if color != (255, 255, 255):
-					dpg.configure_item(text_id, color=color)
-				if dpg.does_item_exist("log_content_window"):
-					dpg.set_y_scroll("log_content_window", -1.0)
-		except:
-			pass
+		if dpg.does_item_exist("log_content"):
+			self.log_entry_count += 1
+			text_id = dpg.add_text(message, parent="log_content", tag=f"log_entry_{self.log_entry_count}")
+			if color != (255, 255, 255):
+				dpg.configure_item(text_id, color=color)
+			if dpg.does_item_exist("log_content_window"):
+				dpg.set_y_scroll("log_content_window", -1.0)
 	
 	def update_game_state(self, state_name: str) -> None:
 		if dpg.does_item_exist("game_state_label"):
@@ -359,26 +345,19 @@ class ManiaGUI:
 			dpg.set_value("offset_input", value)
 	
 	def _handle_window_drag(self) -> None:
-		"""Handle window dragging by checking mouse position and button state"""
-		# Get mouse position (this is window-relative in DearPyGUI)
 		mouse_local_x, mouse_local_y = dpg.get_mouse_pos(local=True)
 		
-		if dpg.is_mouse_button_down(0):  # Left mouse button
+		if dpg.is_mouse_button_down(0):
 			if not self.is_dragging:
-				# Check if click is in titlebar area (top 25 pixels of window)
 				if 0 <= mouse_local_y <= 25:
 					self.is_dragging = True
-					# Store the initial mouse position relative to window
 					self.drag_offset_x = mouse_local_x
 					self.drag_offset_y = mouse_local_y
 			
 			if self.is_dragging:
-				# Get current viewport position
 				vp_x, vp_y = dpg.get_viewport_pos()
-				# Calculate delta from initial drag position
 				delta_x = mouse_local_x - self.drag_offset_x
 				delta_y = mouse_local_y - self.drag_offset_y
-				# Update viewport position
 				new_x = int(vp_x + delta_x)
 				new_y = int(vp_y + delta_y)
 				dpg.configure_viewport(self.viewport, x_pos=new_x, y_pos=new_y)
@@ -388,6 +367,7 @@ class ManiaGUI:
 	def run(self) -> None:
 		self._running = True
 		dpg.show_viewport()
+		
 		while dpg.is_dearpygui_running():
 			self._handle_window_drag()
 			dpg.render_dearpygui_frame()
@@ -395,15 +375,10 @@ class ManiaGUI:
 	
 	def stop(self) -> None:
 		self._running = False
-		try:
-			if hasattr(dpg, "stop_dearpygui"):
-				dpg.stop_dearpygui()
-		except Exception:
-			pass
-		try:
-			dpg.destroy_context()
-		except Exception:
-			pass
+		
+		if hasattr(dpg, "stop_dearpygui"):
+			dpg.stop_dearpygui()
+		dpg.destroy_context()
 	
 	def is_running(self) -> bool:
 		return self._running
