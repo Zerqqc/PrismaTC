@@ -130,21 +130,7 @@ class ManiaGUI:
 						dpg.add_text("Controls")
 						dpg.add_separator()
 						
-						with dpg.group(horizontal=True):
-							dpg.add_button(
-								label="Start Bot (Auto)",
-								callback=self._start_bot_clicked,
-								width=150,
-								tag="start_button"
-							)
-							dpg.add_button(
-								label="Stop Bot (Q)",
-								callback=self._stop_bot_clicked,
-								width=150,
-								tag="stop_button"
-							)
-						
-						dpg.add_separator()
+
 						dpg.add_text("Settings")
 						
 						dpg.add_input_int(
@@ -170,10 +156,9 @@ class ManiaGUI:
 						dpg.add_separator()
 						
 						with dpg.collapsing_header(label="Keyboard Shortcuts", default_open=False):
-							dpg.add_text("Q - Stop bot")
+							dpg.add_text("Q - Enable/Disable bot")
 							dpg.add_text("< > - Adjust timing shift")
 							dpg.add_text("[ ] - Adjust offset")
-							dpg.add_text("\n[ ! ] Only available while playing a beatmap")
 					
 					with dpg.child_window(width=-1, height=-1, border=True, tag="log_panel"):
 						with dpg.group(horizontal=True):
@@ -299,9 +284,9 @@ class ManiaGUI:
 		if dpg.does_item_exist("beatmap_keys"):
 			if is_mania and position_keys is not None:
 				if original_position_keys is not None and original_position_keys > cs_keys:
-					dpg.set_value("beatmap_keys", f"Keys: {position_keys}K (POSITION-based) [remapped from {original_position_keys} positions]")
+					dpg.set_value("beatmap_keys", f"Keys: {position_keys}K (fixed from {original_position_keys} positions)")
 				else:
-					dpg.set_value("beatmap_keys", f"Keys: {position_keys}K (POSITION-based)")
+					dpg.set_value("beatmap_keys", f"Keys: {position_keys}K")
 			elif is_mania:
 				dpg.set_value("beatmap_keys", f"Keys: {keys}K")
 			else:
@@ -312,6 +297,7 @@ class ManiaGUI:
 		if dpg.does_item_exist("map_error_message"):
 			if is_mania and has_error and error_message:
 				dpg.set_value("map_error_message", f"{error_message}")
+				dpg.configure_item("map_error_message", color=(255, 200, 0))
 			else:
 				dpg.set_value("map_error_message", "")
 		if dpg.does_item_exist("mode_not_supported"):
