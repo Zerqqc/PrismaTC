@@ -54,10 +54,16 @@ int compare_ints(const void* a, const void* b) {
     return (*(int*)a - *(int*)b);
 }
 
-void setupKeyBindings(int* columns, int columnCount) {
+void setupKeyBindings(int* columns, int columnCount, WORD* customKeys) {
     char keys[] = {'A', 'S', 'D', 'F', VK_SPACE, 'J', 'K', 'L', VK_OEM_1};
     int middleIndex = columnCount / 2;
-
+    
+    if (customKeys != NULL) {
+        for (int i = 0; i < columnCount; i++) {
+            keyStates[i].key = customKeys[i];
+        }
+        return;
+    }
     if (columnCount % 2 == 1) {
 
         keyStates[middleIndex].key = VK_SPACE;
@@ -171,7 +177,7 @@ __declspec(dllexport) void setOffset(int value) {
     offset = value;
 }
 
-__declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int count, int unused1, int unused2, int startTimeAdjustment, BOOL enableClicking, int offset, int expectedColumnCount) {
+__declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int count, int unused1, int unused2, int startTimeAdjustment, BOOL enableClicking, int offset, int expectedColumnCount, WORD* customKeys) {
     srand((unsigned int)time(NULL));
 
     int columns[MAX_KEYS];
@@ -204,7 +210,7 @@ __declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int cou
     printf("Detected mode: %dK\n", columnCount);
 
 
-    setupKeyBindings(columns, columnCount);
+    setupKeyBindings(columns, columnCount, customKeys);
 
     struct HitObject columnObjects[MAX_KEYS][MAX_OBJECTS_PER_COLUMN];
     int columnCounts[MAX_KEYS] = {0};
