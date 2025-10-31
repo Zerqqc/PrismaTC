@@ -121,10 +121,18 @@ class ManiaGUI:
 					dpg.add_text("Audio Time: 00:00.000", tag="audio_time_label")
 					dpg.add_separator()
 					
+					dpg.add_text("Gameplay Stats", tag="gameplay_header")
+					dpg.add_text("Score: N/A", tag="gameplay_score")
+					dpg.add_text("Combo: N/A", tag="gameplay_combo")
+					dpg.add_text("Accuracy: N/A", tag="gameplay_accuracy")
+					dpg.add_text("HP: N/A", tag="gameplay_hp")
+					dpg.add_text("Hits: N/A", tag="gameplay_hits")
+					dpg.add_separator()
+					
 					dpg.add_text("Bot Status: Idle", tag="bot_status_label")
 					dpg.add_text("First Note: N/A", tag="first_note_label")
 					dpg.add_separator()
-					dpg.add_text("\n\n\n\n\n\n\n\nMade by Zerqqc")
+					dpg.add_text("\n\n\n\n\n\nMade by Zerqqc")
     				
      
 				
@@ -339,6 +347,35 @@ class ManiaGUI:
 			seconds = (audio_time_ms % 60000) // 1000
 			milliseconds = audio_time_ms % 1000
 			dpg.set_value("audio_time_label", f"Audio Time: {minutes:02d}:{seconds:02d}.{milliseconds:03d}")
+	
+	def update_gameplay_data(self, score: int, combo: int, max_combo: int, accuracy: float, hp: float, 
+	                          hit_300: int, hit_100: int, hit_50: int, hit_miss: int, hit_geki: int, hit_katu: int) -> None:
+		if dpg.does_item_exist("gameplay_score"):
+			dpg.set_value("gameplay_score", f"Score: {score:,}")
+		
+		if dpg.does_item_exist("gameplay_combo"):
+			dpg.set_value("gameplay_combo", f"Combo: {combo}x / {max_combo}x")
+		
+		if dpg.does_item_exist("gameplay_accuracy"):
+			dpg.set_value("gameplay_accuracy", f"Accuracy: {accuracy*100:.2f}%")
+		
+		if dpg.does_item_exist("gameplay_hp"):
+			dpg.set_value("gameplay_hp", f"HP: {hp*100:.1f}%")
+		
+		if dpg.does_item_exist("gameplay_hits"):
+			dpg.set_value("gameplay_hits", f"Hits: {hit_geki}g / {hit_300} / {hit_katu}k / {hit_100} / {hit_50} / {hit_miss}x")
+	
+	def clear_gameplay_data(self) -> None:
+		if dpg.does_item_exist("gameplay_score"):
+			dpg.set_value("gameplay_score", "Score: N/A")
+		if dpg.does_item_exist("gameplay_combo"):
+			dpg.set_value("gameplay_combo", "Combo: N/A")
+		if dpg.does_item_exist("gameplay_accuracy"):
+			dpg.set_value("gameplay_accuracy", "Accuracy: N/A")
+		if dpg.does_item_exist("gameplay_hp"):
+			dpg.set_value("gameplay_hp", "HP: N/A")
+		if dpg.does_item_exist("gameplay_hits"):
+			dpg.set_value("gameplay_hits", "Hits: N/A")
 	
 	def update_bot_status(self, status: str) -> None:
 		if dpg.does_item_exist("bot_status_label"):
