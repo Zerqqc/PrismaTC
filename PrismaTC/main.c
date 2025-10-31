@@ -5,7 +5,7 @@
 #include <process.h>
 #include <math.h>
 
-#define MAX_KEYS 9
+#define MAX_KEYS 18
 #define MAX_OBJECTS_PER_COLUMN 9999
 #define PI 3.14159265358979323846
 
@@ -16,6 +16,10 @@ struct HitObject {
 volatile BOOL stopClicking = FALSE;
 volatile int timingShift = 0;
 volatile int offset = 30;
+volatile BOOL humanize_offset_boost = FALSE;
+volatile BOOL humanize_force_miss = FALSE;
+volatile BOOL humanize_press_sooner = FALSE;
+volatile BOOL humanize_press_later = FALSE;
 
 typedef struct {
     WORD key;
@@ -39,6 +43,10 @@ void pressKey(WORD key) {
     INPUT input = {0};
     input.type = INPUT_KEYBOARD;
     input.ki.wVk = key;
+    if (key == VK_RMENU || key == VK_RCONTROL || key == VK_RSHIFT) {
+        input.ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
+    }
+    
     SendInput(1, &input, sizeof(INPUT));
 }
 
@@ -47,6 +55,10 @@ void releaseKey(WORD key) {
     input.type = INPUT_KEYBOARD;
     input.ki.wVk = key;
     input.ki.dwFlags = KEYEVENTF_KEYUP;
+    if (key == VK_RMENU || key == VK_RCONTROL || key == VK_RSHIFT) {
+        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    
     SendInput(1, &input, sizeof(INPUT));
 }
 
@@ -59,13 +71,56 @@ void setupKeyBindings(int* columns, int columnCount, WORD* customKeys) {
     int middleIndex = columnCount / 2;
     
     if (customKeys != NULL) {
-        for (int i = 0; i < columnCount; i++) {
+        for (int i = 0; i < columnCount && i < MAX_KEYS; i++) {
             keyStates[i].key = customKeys[i];
         }
         return;
     }
-    if (columnCount % 2 == 1) {
 
+    if (columnCount == 10) {
+        // 10K: D, F, Spc, J, K, E, R, RAlt, U, I
+        WORD keys10[] = {'D', 'F', VK_SPACE, 'J', 'K', 'E', 'R', VK_RMENU, 'U', 'I'};
+        for (int i = 0; i < 10; i++) {
+            keyStates[i].key = keys10[i];
+        }
+        return;
+    } else if (columnCount == 12) {
+        // 12K: S, D, F, J, K, L, W, E, R, U, I, O
+        WORD keys12[] = {'S', 'D', 'F', 'J', 'K', 'L', 'W', 'E', 'R', 'U', 'I', 'O'};
+        for (int i = 0; i < 12; i++) {
+            keyStates[i].key = keys12[i];
+        }
+        return;
+    } else if (columnCount == 14) {
+        // 14K: S, D, F, SPC, J, K, L, W, E, R, RAlt, U, I, O
+        WORD keys14[] = {'S', 'D', 'F', VK_SPACE, 'J', 'K', 'L', 'W', 'E', 'R', VK_RMENU, 'U', 'I', 'O'};
+        for (int i = 0; i < 14; i++) {
+            keyStates[i].key = keys14[i];
+        }
+        return;
+    } else if (columnCount == 16) {
+        // 16K: A, S, D, F, J, K, L, ;, Q, W, E, R, U, I, O, P
+        WORD keys16[] = {'A', 'S', 'D', 'F', 'J', 'K', 'L', VK_OEM_1, 'Q', 'W', 'E', 'R', 'U', 'I', 'O', 'P'};
+        for (int i = 0; i < 16; i++) {
+            keyStates[i].key = keys16[i];
+        }
+        return;
+    } else if (columnCount == 18) {
+        // 18K: A, S, D, F, Spc, J, K, L, ;, Q, W, E, R, RAlt, U, I, O, P
+        WORD keys18[] = {'A', 'S', 'D', 'F', VK_SPACE, 'J', 'K', 'L', VK_OEM_1, 'Q', 'W', 'E', 'R', VK_RMENU, 'U', 'I', 'O', 'P'};
+        for (int i = 0; i < 18; i++) {
+            keyStates[i].key = keys18[i];
+        }
+        return;
+    } else if (columnCount > 9) {
+        WORD keysDefault[] = {'A', 'S', 'D', 'F', VK_SPACE, 'J', 'K', 'L', VK_OEM_1, 'Q', 'W', 'E', 'R', VK_RMENU, 'U', 'I', 'O', 'P'};
+        for (int i = 0; i < columnCount && i < MAX_KEYS; i++) {
+            keyStates[i].key = keysDefault[i];
+        }
+        return;
+    }
+
+    if (columnCount % 2 == 1) {
         keyStates[middleIndex].key = VK_SPACE;
         for (int i = middleIndex - 1, keyIndex = 3; i >= 0; i--, keyIndex--) {
             keyStates[i].key = keys[keyIndex];
@@ -74,7 +129,6 @@ void setupKeyBindings(int* columns, int columnCount, WORD* customKeys) {
             keyStates[i].key = keys[keyIndex];
         }
     } else {
-
         for (int i = middleIndex - 1, keyIndex = 3; i >= 0; i--, keyIndex--) {
             keyStates[i].key = keys[keyIndex];
         }
@@ -115,20 +169,59 @@ unsigned __stdcall columnPlayer(void* arg) {
         QueryPerformanceCounter(&currentTime);
         double elapsedTime = (double)(currentTime.QuadPart - startTime.QuadPart) * 1000.0 / frequency.QuadPart;
 
-        int pressOffset = generateBellCurveOffset(offset);
-        int releaseOffset = generateBellCurveOffset(offset);
-       
-        int pressTime = obj->timestamp - data->startTimeAdjustment + pressOffset + timingShift;
-        int releaseTime = (obj->object_type == 128) ? obj->end_time - data->startTimeAdjustment + releaseOffset + timingShift : pressTime + 50 + releaseOffset;
+        int currentOffset = offset;
+        int additionalShift = 0;
+        
+        if (humanize_offset_boost) {
+            currentOffset = (int)(offset * 1.5);
+        }
+        if (humanize_press_sooner) {
+            int noteInterval = (nextObj) ? (nextObj->timestamp - obj->timestamp) : 100;
+            additionalShift = -(int)(noteInterval * 0.1);
+        }
+        if (humanize_press_later) {
+            int noteInterval = (nextObj) ? (nextObj->timestamp - obj->timestamp) : 100;
+            additionalShift = (int)(noteInterval * 0.1);
+        }
 
-        if (nextObj && releaseTime > nextObj->timestamp - data->startTimeAdjustment - 5) {
-            releaseTime = nextObj->timestamp - data->startTimeAdjustment - 5;
+        int pressOffset = generateBellCurveOffset(currentOffset);
+        int releaseOffset = generateBellCurveOffset(currentOffset);
+       
+        int pressTime = obj->timestamp - data->startTimeAdjustment + pressOffset + timingShift + additionalShift;
+        
+        int releaseTime;
+        if (obj->object_type == 128) {
+            releaseTime = obj->end_time - data->startTimeAdjustment + releaseOffset + timingShift + additionalShift;
+        } else {
+            int holdTime = 50;
+            if (nextObj) {
+                int intervalToNext = nextObj->timestamp - obj->timestamp;
+                if (intervalToNext < 100) {
+                    holdTime = (int)(intervalToNext * 0.3);
+                    if (holdTime < 15) holdTime = 15;
+                    if (holdTime > 40) holdTime = 40;
+                } else if (intervalToNext < 200) {
+                    holdTime = 40;
+                }
+            }
+            releaseTime = pressTime + holdTime + releaseOffset;
+        }
+
+        if (nextObj) {
+            int nextPressTime = nextObj->timestamp - data->startTimeAdjustment - 10;
+            if (releaseTime > nextPressTime) {
+                releaseTime = nextPressTime;
+            }
         }
 
         while (elapsedTime < pressTime) {
             if (stopClicking) return 0;
             QueryPerformanceCounter(&currentTime);
             elapsedTime = (double)(currentTime.QuadPart - startTime.QuadPart) * 1000.0 / frequency.QuadPart;
+        }
+
+        if (humanize_force_miss) {
+            continue;
         }
 
         if (data->enableClicking) {
@@ -177,6 +270,22 @@ __declspec(dllexport) void setOffset(int value) {
     offset = value;
 }
 
+__declspec(dllexport) void setHumanizeOffsetBoost(BOOL value) {
+    humanize_offset_boost = value;
+}
+
+__declspec(dllexport) void setHumanizeForceMiss(BOOL value) {
+    humanize_force_miss = value;
+}
+
+__declspec(dllexport) void setHumanizePressSooner(BOOL value) {
+    humanize_press_sooner = value;
+}
+
+__declspec(dllexport) void setHumanizePressLater(BOOL value) {
+    humanize_press_later = value;
+}
+
 __declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int count, int unused1, int unused2, int startTimeAdjustment, BOOL enableClicking, int offset, int expectedColumnCount, WORD* customKeys) {
     srand((unsigned int)time(NULL));
 
@@ -212,9 +321,26 @@ __declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int cou
 
     setupKeyBindings(columns, columnCount, customKeys);
 
-    struct HitObject columnObjects[MAX_KEYS][MAX_OBJECTS_PER_COLUMN];
-    int columnCounts[MAX_KEYS] = {0};
 
+    struct HitObject** columnObjects = (struct HitObject**)malloc(MAX_KEYS * sizeof(struct HitObject*));
+    if (!columnObjects) {
+        printf("Failed to allocate memory for columnObjects\n");
+        return;
+    }
+    
+    for (int i = 0; i < MAX_KEYS; i++) {
+        columnObjects[i] = (struct HitObject*)malloc(MAX_OBJECTS_PER_COLUMN * sizeof(struct HitObject));
+        if (!columnObjects[i]) {
+            printf("Failed to allocate memory for columnObjects[%d]\n", i);
+            for (int j = 0; j < i; j++) {
+                free(columnObjects[j]);
+            }
+            free(columnObjects);
+            return;
+        }
+    }
+    
+    int columnCounts[MAX_KEYS] = {0};
 
     for (int i = 0; i < count; i++) {
         int columnIndex = getKeyIndex(hitObjects[i].x, columns, columnCount);
@@ -227,7 +353,6 @@ __declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int cou
     HANDLE threads[MAX_KEYS];
     struct ThreadData threadData[MAX_KEYS];
 
-
     for (int i = 0; i < columnCount; i++) {
         threadData[i].objects = columnObjects[i];
         threadData[i].count = columnCounts[i];
@@ -239,13 +364,16 @@ __declspec(dllexport) void clickHitObjects(struct HitObject* hitObjects, int cou
         threads[i] = (HANDLE)_beginthreadex(NULL, 0, columnPlayer, &threadData[i], 0, NULL);
     }
 
-
     WaitForMultipleObjects(columnCount, threads, TRUE, INFINITE);
-
 
     for (int i = 0; i < columnCount; i++) {
         CloseHandle(threads[i]);
     }
+
+    for (int i = 0; i < MAX_KEYS; i++) {
+        free(columnObjects[i]);
+    }
+    free(columnObjects);
 
     printf("All columns completed.\n");
 }

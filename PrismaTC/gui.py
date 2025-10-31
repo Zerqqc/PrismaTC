@@ -12,6 +12,7 @@ class ManiaGUI:
 		self.height = height
 		self.viewport = None
 		self.log_entry_count = 0
+		self.log_mode = "Normal"
 
 		self.on_start_bot: Optional[Callable] = None
 		self.on_stop_bot: Optional[Callable] = None
@@ -134,8 +135,6 @@ class ManiaGUI:
 					dpg.add_separator()
 					dpg.add_text("\n\n\n\n\n\nMade by Zerqqc")
     				
-     
-				
 				with dpg.group(width=-1):
 					with dpg.child_window(width=-1, height=280, border=True, tag="controls_panel"):
 						dpg.add_text("Controls")
@@ -174,7 +173,8 @@ class ManiaGUI:
 					with dpg.child_window(width=-1, height=-1, border=True, tag="log_panel"):
 						with dpg.group(horizontal=True):
 							dpg.add_text("Logs")
-							dpg.add_spacer(width=380)
+							dpg.add_spacer(width=315)
+							dpg.add_button(label="Minimal", width=60, callback=self._toggle_log_mode, tag="log_mode_button")
 							dpg.add_button(label="Clear", width=50, callback=self._clear_logs)
 		
 						dpg.add_separator()
@@ -230,6 +230,18 @@ class ManiaGUI:
 			value = dpg.get_value(sender) if sender else 0
 			self.on_timing_shift_change(value)
 	
+	def _toggle_log_mode(self, *args) -> None:
+		if self.log_mode == "Normal":
+			self.log_mode = "Minimal"
+			if dpg.does_item_exist("log_mode_button"):
+				dpg.set_item_label("log_mode_button", "Normal")
+			self.log_message("Log mode: Minimal (reduced logs)", color=(100, 200, 255))
+		else:
+			self.log_mode = "Normal"
+			if dpg.does_item_exist("log_mode_button"):
+				dpg.set_item_label("log_mode_button", "Minimal")
+			self.log_message("Log mode: Normal (detailed logs)", color=(100, 200, 255))
+	
 	def _clear_logs(self, *args) -> None:
 		self.log_entry_count = 0
 		dpg.delete_item("log_content", children_only=True)
@@ -251,8 +263,33 @@ class ManiaGUI:
 			self.on_exit()
 		self.stop()
 	
+	def _should_show_in_minimal(self, message: str) -> bool:
+		critical_keywords = [
+			"ERROR", "FATAL", "WARNING", "STOPPED", "STARTED",
+			"Bot ENABLED", "Bot DISABLED", "Prepared beatmap",
+			"Game state changed", "Humanize:", "Bot Status:",
+			"Player died", "Map fixed", "Detected PAUSE", "Detected UNPAUSE",
+			"Detected RESTART", "Bot execution completed"
+		]
+		
+		for keyword in critical_keywords:
+			if keyword in message:
+				return True
+		verbose_keywords = [
+			"[TIMING]", "[PAUSE]", "Stopping bot", "Δ:", "Audio timer",
+			"Will resume from", "Resetting for restart", "audio:",
+			"Timing shift:", "Offset:", "Waiting for audio"
+		]
+		
+		for keyword in verbose_keywords:
+			if keyword in message:
+				return False
+		return True
+	
 	def log_message(self, message: str, color: tuple = (255, 255, 255)) -> None:
 		safe_print(message)
+		if self.log_mode == "Minimal" and not self._should_show_in_minimal(message):
+			return
 		
 		if dpg.does_item_exist("log_content"):
 			self.log_entry_count += 1

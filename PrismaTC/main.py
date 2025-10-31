@@ -331,8 +331,11 @@ class ManiaBotController:
 						
 						if vk_codes:
 							mode_number = int(key[5:-1])
-							custom_keybinds[mode_number] = vk_codes
-							safe_print(f"Loaded custom keybind for {mode_number}K: {key_chars}")
+							if mode_number <= 18:
+								custom_keybinds[mode_number] = vk_codes
+								safe_print(f"Loaded custom keybind for {mode_number}K: {key_chars}")
+							else:
+								safe_print(f"Warning: {mode_number}K exceeds maximum of 18 keys, skipping")
 					except Exception as e:
 						safe_print(f"Error parsing {key}: {e}")
 						continue
@@ -408,6 +411,10 @@ class ManiaBotController:
 		dll.setStopClicking.argtypes = [ctypes.c_bool]
 		dll.setTimingShift.argtypes = [ctypes.c_int]
 		dll.setOffset.argtypes = [ctypes.c_int]
+		dll.setHumanizeOffsetBoost.argtypes = [ctypes.c_bool]
+		dll.setHumanizeForceMiss.argtypes = [ctypes.c_bool]
+		dll.setHumanizePressSooner.argtypes = [ctypes.c_bool]
+		dll.setHumanizePressLater.argtypes = [ctypes.c_bool]
 		return dll
 
 	def run(self) -> None:
@@ -481,7 +488,11 @@ class ManiaBotController:
 			"timing_shift_decrease": False,
 			"timing_shift_increase": False,
 			"offset_decrease": False,
-			"offset_increase": False
+			"offset_increase": False,
+			"humanize_offset_boost": False,
+			"humanize_force_miss": False,
+			"humanize_press_sooner": False,
+			"humanize_press_later": False
 		}
 		
 		while not self.shutdown:
@@ -567,6 +578,47 @@ class ManiaBotController:
 						except Exception:
 							pass
 				key_states["offset_increase"] = offset_inc_pressed
+				
+				shift_pressed = keyboard.is_pressed('shift')
+				if shift_pressed != key_states["humanize_offset_boost"]:
+					self.dll.setHumanizeOffsetBoost(ctypes.c_bool(shift_pressed))
+					if shift_pressed:
+						self._log("Humanize: Offset +50% ACTIVE (SHIFT)", color=(255, 200, 100))
+						if self.gui:
+							boosted_offset = int(self.offset * 1.5)
+							self.gui.set_offset(boosted_offset)
+					else:
+						self._log("Humanize: Offset +50% deactivated", color=(150, 150, 150))
+						if self.gui:
+							self.gui.set_offset(self.offset)
+					key_states["humanize_offset_boost"] = shift_pressed
+				
+				alt_pressed = keyboard.is_pressed('alt')
+				if alt_pressed != key_states["humanize_force_miss"]:
+					self.dll.setHumanizeForceMiss(ctypes.c_bool(alt_pressed))
+					if alt_pressed:
+						self._log("Humanize: Force miss ACTIVE (ALT)", color=(255, 100, 100))
+					else:
+						self._log("Humanize: Force miss deactivated", color=(150, 150, 150))
+					key_states["humanize_force_miss"] = alt_pressed
+				
+				ctrl_pressed = keyboard.is_pressed('ctrl')
+				if ctrl_pressed != key_states["humanize_press_sooner"]:
+					self.dll.setHumanizePressSooner(ctypes.c_bool(ctrl_pressed))
+					if ctrl_pressed:
+						self._log("Humanize: Press 10% sooner ACTIVE (CTRL)", color=(100, 200, 255))
+					else:
+						self._log("Humanize: Press 10% sooner deactivated", color=(150, 150, 150))
+					key_states["humanize_press_sooner"] = ctrl_pressed
+				
+				caps_pressed = keyboard.is_pressed('caps lock')
+				if caps_pressed != key_states["humanize_press_later"]:
+					self.dll.setHumanizePressLater(ctypes.c_bool(caps_pressed))
+					if caps_pressed:
+						self._log("Humanize: Press 10% later ACTIVE (CAPS)", color=(255, 150, 200))
+					else:
+						self._log("Humanize: Press 10% later deactivated", color=(150, 150, 150))
+					key_states["humanize_press_later"] = caps_pressed
 				
 				time.sleep(0.05)
 			except RuntimeError as exc:
