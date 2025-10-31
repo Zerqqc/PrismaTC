@@ -214,6 +214,8 @@ class ManiaBotController:
 			self.gui.on_exit = self._gui_exit
 			self.gui.on_offset_change = self._gui_offset_changed
 			self.gui.on_timing_shift_change = self._gui_timing_shift_changed
+		
+		self.custom_keybinds = self._parse_custom_keybinds()
 
 		if self.timing_shift:
 			self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
@@ -299,6 +301,46 @@ class ManiaBotController:
 
 		return None
 
+	def _parse_custom_keybinds(self) -> dict:
+		custom_keybinds = {}
+		if not self.config.has_section("keybinds"):
+			return custom_keybinds
+		try:
+			for key in self.config["keybinds"]:
+				if key.startswith("mode_") and key.endswith("k"):
+					mode_str = self.config["keybinds"][key].strip()
+					if not mode_str or mode_str.startswith(";"):
+						continue
+					try:
+						if mode_str.startswith("[") and mode_str.endswith("]"):
+							mode_str = mode_str[1:-1]
+						
+						key_chars = [k.strip().upper() for k in mode_str.split(",")]
+						
+						vk_codes = []
+						for char in key_chars:
+							if len(char) == 1 and char.isalpha():
+								vk_code = ord(char)
+								vk_codes.append(vk_code)
+							else:
+								safe_print(f"Invalid key '{char}' in {key}, skipping this keybind")
+								vk_codes = []
+								break
+						
+						if vk_codes:
+							mode_number = int(key[5:-1])
+							custom_keybinds[mode_number] = vk_codes
+							safe_print(f"Loaded custom keybind for {mode_number}K: {key_chars}")
+					except Exception as e:
+						safe_print(f"Error parsing {key}: {e}")
+						continue
+		except Exception as e:
+			safe_print(f"Error in _parse_custom_keybinds: {e}")
+			import traceback
+			traceback.print_exc()
+		
+		return custom_keybinds
+
 	def _load_mania_dll(self) -> ctypes.CDLL:
 		dll_path = os.path.join(self.base_dir, "main.dll")
 		if not os.path.isfile(dll_path):
@@ -314,7 +356,7 @@ class ManiaBotController:
 			ctypes.c_bool,
 			ctypes.c_int,
 			ctypes.c_int,
-			ctypes.c_int,
+			ctypes.POINTER(ctypes.c_uint16),
 		)
 		dll.setStopClicking.argtypes = [ctypes.c_bool]
 		dll.setTimingShift.argtypes = [ctypes.c_int]
@@ -817,6 +859,12 @@ class ManiaBotController:
 				array_type = HitObject * total
 				hit_array = array_type(*session.hit_objects[from_index:])
 				
+				custom_keys_ptr = None
+				if session.keys in self.custom_keybinds:
+					vk_codes = self.custom_keybinds[session.keys]
+					custom_keys_array = (ctypes.c_uint16 * len(vk_codes))(*vk_codes)
+					custom_keys_ptr = ctypes.cast(custom_keys_array, ctypes.POINTER(ctypes.c_uint16))
+				
 				self.dll.clickHitObjects(
 					hit_array,
 					ctypes.c_int(total),
@@ -826,7 +874,7 @@ class ManiaBotController:
 					ctypes.c_bool(True),
 					ctypes.c_int(self.offset),
 					ctypes.c_int(session.keys),
-					ctypes.c_int(self.timing_shift),
+					custom_keys_ptr,
 				)
 				self._log("Bot execution completed.")
 			except Exception as exc:
