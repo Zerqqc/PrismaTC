@@ -216,6 +216,7 @@ class ManiaBotController:
 			self.gui.on_timing_shift_change = self._gui_timing_shift_changed
 		
 		self.custom_keybinds = self._parse_custom_keybinds()
+		self.shortcuts = self._parse_shortcuts()
 
 		if self.timing_shift:
 			self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
@@ -340,6 +341,51 @@ class ManiaBotController:
 			traceback.print_exc()
 		
 		return custom_keybinds
+	
+	def _parse_shortcuts(self) -> dict:
+		shortcuts = {
+			"timing_shift_decrease": "left",
+			"timing_shift_increase": "right",
+			"offset_decrease": "[",
+			"offset_increase": "]",
+			"toggle_bot": "q"
+		}
+		
+		if not self.config.has_section("shortcuts"):
+			return shortcuts
+		
+		try:
+			if self.config.has_option("shortcuts", "timing_shift_bind"):
+				bind_str = self.config.get("shortcuts", "timing_shift_bind").strip()
+				if bind_str and not bind_str.startswith(";"):
+					if bind_str.startswith("[") and bind_str.endswith("]"):
+						bind_str = bind_str[1:-1]
+					keys = [k.strip().lower() for k in bind_str.split(",")]
+					if len(keys) == 2:
+						shortcuts["timing_shift_decrease"] = keys[0]
+						shortcuts["timing_shift_increase"] = keys[1]
+			
+			if self.config.has_option("shortcuts", "offset_bind"):
+				bind_str = self.config.get("shortcuts", "offset_bind").strip()
+				if bind_str and not bind_str.startswith(";"):
+					if bind_str.startswith("[") and bind_str.endswith("]"):
+						bind_str = bind_str[1:-1]
+					keys = [k.strip().lower() for k in bind_str.split(",")]
+					if len(keys) == 2:
+						shortcuts["offset_decrease"] = keys[0]
+						shortcuts["offset_increase"] = keys[1]
+			
+			if self.config.has_option("shortcuts", "toggle_bot_bind"):
+				bind_str = self.config.get("shortcuts", "toggle_bot_bind").strip()
+				if bind_str and not bind_str.startswith(";"):
+					shortcuts["toggle_bot"] = bind_str.lower()
+					
+		except Exception as e:
+			safe_print(f"Error parsing shortcuts: {e}")
+			import traceback
+			traceback.print_exc()
+		
+		return shortcuts
 
 	def _load_mania_dll(self) -> ctypes.CDLL:
 		dll_path = os.path.join(self.base_dir, "main.dll")
@@ -428,31 +474,35 @@ class ManiaBotController:
 	def _keyboard_listener(self) -> None:
 		if keyboard is None:
 			return
-		last_q_state = False
-		last_left_state = False
-		last_right_state = False
-		last_lbracket_state = False
-		last_rbracket_state = False
+		
+		key_states = {
+			"toggle_bot": False,
+			"timing_shift_decrease": False,
+			"timing_shift_increase": False,
+			"offset_decrease": False,
+			"offset_increase": False
+		}
 		
 		while not self.shutdown:
 			try:
 				if self._is_osu_focused():
-					q_pressed = keyboard.is_pressed("q")
-					if q_pressed and not last_q_state:
+					toggle_key = self.shortcuts["toggle_bot"]
+					toggle_pressed = keyboard.is_pressed(toggle_key)
+					if toggle_pressed and not key_states["toggle_bot"]:
 						self.bot_enabled = not self.bot_enabled
 						if self.bot_enabled:
-							self._log("Bot ENABLED (Q)", color=(100, 255, 100))
+							self._log(f"Bot ENABLED ({toggle_key.upper()})", color=(100, 255, 100))
 							if self.gui:
 								self.gui.update_bot_status("Enabled - Ready")
 						else:
-							self._log("Bot DISABLED (Q)", color=(255, 100, 100))
+							self._log(f"Bot DISABLED ({toggle_key.upper()})", color=(255, 100, 100))
 							if self.script_running:
-								self._stop_click_thread("bot disabled via Q")
+								self._stop_click_thread("bot disabled via toggle key")
 							if self.gui:
 								self.gui.update_bot_status("Disabled")
-					last_q_state = q_pressed
+					key_states["toggle_bot"] = toggle_pressed
 				else:
-					last_q_state = False
+					key_states["toggle_bot"] = False
 				
 				shortcuts_enabled = (
 					self.last_state == GameState.PLAY and 
@@ -460,15 +510,14 @@ class ManiaBotController:
 				)
 				
 				if not shortcuts_enabled:
-					last_left_state = False
-					last_right_state = False
-					last_lbracket_state = False
-					last_rbracket_state = False
+					for key in key_states:
+						key_states[key] = False
 					time.sleep(0.05)
 					continue
-				
-				left_pressed = keyboard.is_pressed("left")
-				if left_pressed and not last_left_state:
+
+				ts_dec_key = self.shortcuts["timing_shift_decrease"]
+				ts_dec_pressed = keyboard.is_pressed(ts_dec_key)
+				if ts_dec_pressed and not key_states["timing_shift_decrease"]:
 					self.timing_shift -= 1
 					self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
 					self._log(f"Timing shift: {self.timing_shift} ms (earlier)", color=(100, 200, 255))
@@ -477,10 +526,11 @@ class ManiaBotController:
 							self.gui.update_timing_shift(self.timing_shift)
 						except Exception:
 							pass
-				last_left_state = left_pressed
+				key_states["timing_shift_decrease"] = ts_dec_pressed
 
-				right_pressed = keyboard.is_pressed("right")
-				if right_pressed and not last_right_state:
+				ts_inc_key = self.shortcuts["timing_shift_increase"]
+				ts_inc_pressed = keyboard.is_pressed(ts_inc_key)
+				if ts_inc_pressed and not key_states["timing_shift_increase"]:
 					self.timing_shift += 1
 					self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
 					self._log(f"Timing shift: {self.timing_shift} ms (later)", color=(100, 200, 255))
@@ -489,10 +539,11 @@ class ManiaBotController:
 							self.gui.update_timing_shift(self.timing_shift)
 						except Exception:
 							pass
-				last_right_state = right_pressed
+				key_states["timing_shift_increase"] = ts_inc_pressed
 
-				lbracket_pressed = keyboard.is_pressed("[")
-				if lbracket_pressed and not last_lbracket_state:
+				offset_dec_key = self.shortcuts["offset_decrease"]
+				offset_dec_pressed = keyboard.is_pressed(offset_dec_key)
+				if offset_dec_pressed and not key_states["offset_decrease"]:
 					self.offset = max(0, self.offset - 1)
 					self.dll.setOffset(ctypes.c_int(self.offset))
 					self._log(f"Offset: {self.offset} ms", color=(100, 255, 100))
@@ -501,10 +552,11 @@ class ManiaBotController:
 							self.gui.set_offset(self.offset)
 						except Exception:
 							pass
-				last_lbracket_state = lbracket_pressed
+				key_states["offset_decrease"] = offset_dec_pressed
 				
-				rbracket_pressed = keyboard.is_pressed("]")
-				if rbracket_pressed and not last_rbracket_state:
+				offset_inc_key = self.shortcuts["offset_increase"]
+				offset_inc_pressed = keyboard.is_pressed(offset_inc_key)
+				if offset_inc_pressed and not key_states["offset_increase"]:
 					self.offset += 1
 					self.dll.setOffset(ctypes.c_int(self.offset))
 					self._log(f"Offset: {self.offset} ms", color=(100, 255, 100))
@@ -513,7 +565,7 @@ class ManiaBotController:
 							self.gui.set_offset(self.offset)
 						except Exception:
 							pass
-				last_rbracket_state = rbracket_pressed
+				key_states["offset_increase"] = offset_inc_pressed
 				
 				time.sleep(0.05)
 			except RuntimeError as exc:
