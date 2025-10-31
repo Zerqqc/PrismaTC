@@ -8,7 +8,7 @@ from typing import List, Optional
 import configparser
 import psutil
 
-from memory_reader import GameState, MenuMods, OsuMemoryReader
+from memory_reader import GameState, MenuMods, GameplayData, OsuMemoryReader
 from gui import ManiaGUI
 from safe_print import safe_print
 
@@ -203,6 +203,7 @@ class ManiaBotController:
 		self.audio_freeze_value: Optional[int] = None
 		self.is_paused = False
 		self.pause_detection_enabled = False
+		self.player_died = False
 
 		self.use_gui = use_gui
 		self.gui: Optional[ManiaGUI] = None
@@ -646,6 +647,7 @@ class ManiaBotController:
 				self.audio_freeze_start_time = None
 				self.audio_freeze_value = None
 				self.resume_pending = False
+				self.player_died = False
 				self._log("Entered PLAY state. Waiting for audio timer to stabilize...")
 			self.last_state = state
 
@@ -658,6 +660,42 @@ class ManiaBotController:
 
 		if self.gui and mods:
 			self.gui.update_mods(mods.mods_string, mods.speed_multiplier)
+		
+		if state == GameState.PLAY:
+			gameplay = self.reader.get_gameplay_data()
+			if gameplay:
+				if self.gui:
+					self.gui.update_gameplay_data(
+						score=gameplay.score,
+						combo=gameplay.combo,
+						max_combo=gameplay.max_combo,
+						accuracy=gameplay.accuracy,
+						hp=gameplay.hp,
+						hit_300=gameplay.hit_300,
+						hit_100=gameplay.hit_100,
+						hit_50=gameplay.hit_50,
+						hit_miss=gameplay.hit_miss,
+						hit_geki=gameplay.hit_geki,
+						hit_katu=gameplay.hit_katu
+					)
+				
+				if gameplay.hp <= 0.0 and not self.player_died:
+					has_nofail = False
+					if mods:
+						from memory_reader import OsuMods
+						has_nofail = bool(mods.mods_number & OsuMods.NO_FAIL)
+					
+					if not has_nofail:
+						self.player_died = True
+						self._log("Player died. Stopping bot...", color=(255, 100, 100))
+						if self.script_running:
+							self._stop_click_thread("player death")
+						if self.gui:
+							self.gui.update_bot_status("Stopped (Player Died)")
+		else:
+			if self.gui:
+				self.gui.clear_gameplay_data()
+			self.player_died = False
 
 		if beatmap and beatmap.filename:
 			identifier = f"{beatmap.folder}/{beatmap.filename}"
