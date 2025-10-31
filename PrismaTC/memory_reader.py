@@ -209,6 +209,23 @@ class MenuMods:
     speed_multiplier: float
 
 
+@dataclass
+class GameplayData:
+    player_name: str
+    score: int
+    combo: int
+    max_combo: int
+    accuracy: float
+    hp: float
+    hp_smooth: float
+    hit_300: int
+    hit_100: int
+    hit_50: int
+    hit_miss: int
+    hit_geki: int
+    hit_katu: int
+
+
 class OsuMemoryReader:
     
     def __init__(self, debug: bool = False):
@@ -686,3 +703,91 @@ class OsuMemoryReader:
             mods_array=mods_array if mods_array else ["NM"],
             speed_multiplier=speed_mult
         )
+    
+    def read_double(self, address: int) -> Optional[float]:
+        data = self.read_memory(address, 8)
+        if data:
+            return struct.unpack('<d', data)[0]
+        return None
+    
+    def read_short(self, address: int) -> Optional[int]:
+        data = self.read_memory(address, 2)
+        if data:
+            return struct.unpack('<H', data)[0]
+        return None
+    
+    def get_gameplay_data(self) -> Optional[GameplayData]:
+        if 'rulesetsAddr' not in self.base_addresses:
+            return None
+        
+        try:
+            rulesets_addr = self.base_addresses['rulesetsAddr']
+            
+            ptr1 = self.read_int(rulesets_addr - 0xB)
+            if not ptr1 or ptr1 == 0:
+                return None
+            
+            ruleset_addr = self.read_int(ptr1 + 0x4)
+            if not ruleset_addr or ruleset_addr == 0:
+                return None
+            
+            gameplay_base = self.read_int(ruleset_addr + 0x68)
+            if not gameplay_base or gameplay_base == 0:
+                return None
+            
+            score_base = self.read_int(gameplay_base + 0x38)
+            if not score_base or score_base == 0:
+                return None
+            
+            hp_bar_base = self.read_int(gameplay_base + 0x40)
+            if not hp_bar_base or hp_bar_base == 0:
+                return None
+            
+            player_name_ptr = self.read_int(score_base + 0x28)
+            player_name = self.read_csharp_string(player_name_ptr) if player_name_ptr and player_name_ptr != 0 else ""
+            
+            score = self.read_int(ruleset_addr + 0x100) or 0
+            
+            hp_smooth_raw = self.read_double(hp_bar_base + 0x14) or 0.0
+            hp_raw = self.read_double(hp_bar_base + 0x1C) or 0.0
+            
+            hp = max(0.0, min(1.0, hp_raw / 200.0))
+            hp_smooth = max(0.0, min(1.0, hp_smooth_raw / 200.0))
+            
+            accuracy_ptr = self.read_int(gameplay_base + 0x48)
+            if accuracy_ptr and accuracy_ptr != 0:
+                accuracy_raw = self.read_double(accuracy_ptr + 0xC)
+                accuracy = (accuracy_raw / 100.0) if accuracy_raw is not None else 1.0
+            else:
+                accuracy = 1.0
+            
+            hit_100 = self.read_short(score_base + 0x88) or 0
+            hit_300 = self.read_short(score_base + 0x8A) or 0
+            hit_50 = self.read_short(score_base + 0x8C) or 0
+            hit_geki = self.read_short(score_base + 0x8E) or 0
+            hit_katu = self.read_short(score_base + 0x90) or 0
+            hit_miss = self.read_short(score_base + 0x92) or 0
+            
+            combo = self.read_short(score_base + 0x94) or 0
+            max_combo = self.read_short(score_base + 0x68) or 0
+            
+            return GameplayData(
+                player_name=player_name,
+                score=score,
+                combo=combo,
+                max_combo=max_combo,
+                accuracy=accuracy,
+                hp=hp,
+                hp_smooth=hp_smooth,
+                hit_300=hit_300,
+                hit_100=hit_100,
+                hit_50=hit_50,
+                hit_miss=hit_miss,
+                hit_geki=hit_geki,
+                hit_katu=hit_katu
+            )
+        
+        except Exception as e:
+            if self.debug:
+                safe_print(f"[DEBUG] Error reading gameplay data: {e}")
+            return None
