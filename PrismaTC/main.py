@@ -4,6 +4,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import List, Optional
+import re
 
 import configparser
 import psutil
@@ -305,46 +306,105 @@ class ManiaBotController:
 
 	def _parse_custom_keybinds(self) -> dict:
 		custom_keybinds = {}
-		if not self.config.has_section("keybinds"):
-			return custom_keybinds
+		
 		try:
-			for key in self.config["keybinds"]:
-				if key.startswith("mode_") and key.endswith("k"):
-					mode_str = self.config["keybinds"][key].strip()
-					if not mode_str or mode_str.startswith(";"):
+			songs_dir = self.songs_dir
+			if not songs_dir or not os.path.isdir(songs_dir):
+				return custom_keybinds
+			
+			osu_dir = os.path.dirname(songs_dir)
+			if not osu_dir or not os.path.isdir(osu_dir):
+				return custom_keybinds
+
+			username = os.environ.get('USERNAME', '')
+			if not username:
+				return custom_keybinds
+			
+			cfg_path = os.path.join(osu_dir, f"osu!.{username}.cfg")
+			if not os.path.isfile(cfg_path):
+				cfg_path = os.path.join(osu_dir, "osu!.cfg")
+				if not os.path.isfile(cfg_path):
+					return custom_keybinds
+			
+			with open(cfg_path, 'r', encoding='utf-8') as f:
+				for line in f:
+					line = line.strip()
+					if not line or line.startswith('#'):
 						continue
-					try:
-						if mode_str.startswith("[") and mode_str.endswith("]"):
-							mode_str = mode_str[1:-1]
+					
+					if line.startswith('ManiaLayouts') and '=' in line:
+						parts = line.split('=', 1)
+						key_name = parts[0].strip()
+						key_value = parts[1].strip()
 						
-						key_chars = [k.strip().upper() for k in mode_str.split(",")]
+						if not key_value:
+							continue
+
+						match = re.search(r'ManiaLayouts(\d+)K', key_name)
+						if not match:
+							continue
 						
+						mode_number = int(match.group(1))
+						if mode_number > 18:
+							continue
+
+						key_chars = [k.strip() for k in key_value.split()]
+						if not key_chars:
+							continue
+
 						vk_codes = []
 						for char in key_chars:
-							if len(char) == 1 and char.isalpha():
-								vk_code = ord(char)
+							vk_code = self._key_name_to_vk_code(char)
+							if vk_code:
 								vk_codes.append(vk_code)
 							else:
-								safe_print(f"Invalid key '{char}' in {key}, skipping this keybind")
+								safe_print(f"Unknown key '{char}' in {key_name}, skipping")
 								vk_codes = []
 								break
 						
-						if vk_codes:
-							mode_number = int(key[5:-1])
-							if mode_number <= 18:
-								custom_keybinds[mode_number] = vk_codes
-								safe_print(f"Loaded custom keybind for {mode_number}K: {key_chars}")
-							else:
-								safe_print(f"Warning: {mode_number}K exceeds maximum of 18 keys, skipping")
-					except Exception as e:
-						safe_print(f"Error parsing {key}: {e}")
-						continue
+						if vk_codes and len(vk_codes) == mode_number:
+							custom_keybinds[mode_number] = vk_codes
+							safe_print(f"Loaded keybind for {mode_number}K from osu! config: {key_chars}")
+			
+			if custom_keybinds:
+				safe_print(f"Loaded {len(custom_keybinds)} keybind configurations from osu! config")
+			
 		except Exception as e:
-			safe_print(f"Error in _parse_custom_keybinds: {e}")
+			safe_print(f"Error reading osu! config for keybinds: {e}")
 			import traceback
 			traceback.print_exc()
 		
 		return custom_keybinds
+	
+	def _key_name_to_vk_code(self, key_name: str) -> Optional[int]:
+		key_name = key_name.upper()
+
+		if len(key_name) == 1 and key_name.isalpha():
+			return ord(key_name)
+		
+		special_keys = {
+			'SPACE': 0x20,
+			'LSHIFT': 0xA0,
+			'RSHIFT': 0xA1,
+			'LCONTROL': 0xA2,
+			'RCONTROL': 0xA3,
+			'LALT': 0xA4,
+			'RALT': 0xA5,
+			'RIGHTALT': 0xA5,
+			'OEMSEMICOLON': 0xBA,   # ; key
+			'OEMPLUS': 0xBB,        # + key
+			'OEMCOMMA': 0xBC,       # , key
+			'OEMMINUS': 0xBD,       # - key
+			'OEMPERIOD': 0xBE,      # . key
+			'OEMQUESTION': 0xBF,    # / key
+			'OEMTILDE': 0xC0,       # ` key
+			'OEMOPENBRACES': 0xDB,  # [ key
+			'OEMPIPE': 0xDC,        # \ key
+			'OEMCLOSEBRACES': 0xDD, # ] key
+			'OEMQUOTES': 0xDE,      # ' key
+		}
+		
+		return special_keys.get(key_name)
 	
 	def _parse_shortcuts(self) -> dict:
 		shortcuts = {
