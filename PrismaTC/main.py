@@ -12,6 +12,7 @@ import psutil
 from memory_reader import GameState, MenuMods, GameplayData, OsuMemoryReader
 from gui import ManiaGUI
 from safe_print import safe_print
+from osu_unlocker import OsuUnlocker
 
 import keyboard
 
@@ -209,6 +210,8 @@ class ManiaBotController:
 		self.use_gui = use_gui
 		self.gui: Optional[ManiaGUI] = None
 		self.bot_enabled = True
+		self.osu_unlocker = OsuUnlocker()
+		
 		if self.use_gui:
 			self.gui = ManiaGUI()
 			self.gui.on_start_bot = self._gui_start_bot
@@ -216,6 +219,8 @@ class ManiaBotController:
 			self.gui.on_exit = self._gui_exit
 			self.gui.on_offset_change = self._gui_offset_changed
 			self.gui.on_timing_shift_change = self._gui_timing_shift_changed
+			self.gui.on_osu_unlock_scan = self._gui_osu_unlock_scan
+			self.gui.on_osu_unlock_unlock = self._gui_osu_unlock_unlock
 		
 		self.custom_keybinds = self._parse_custom_keybinds()
 		self.shortcuts = self._parse_shortcuts()
@@ -273,6 +278,44 @@ class ManiaBotController:
 		self.timing_shift = new_timing_shift
 		self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
 		self._log(f"Timing shift changed to {self.timing_shift} ms")
+	
+	def _gui_osu_unlock_scan(self) -> None:
+		self._log("Scanning for osu!.db...")
+		
+		if not self.reader.process_handle:
+			self._log("osu! is not connected. Please wait for osu! to start.", color=(255, 100, 100))
+			return
+		
+		if not self.osu_unlocker.find_osu_database():
+			self._log("Could not find osu!.db. Make sure osu! is running.", color=(255, 100, 100))
+			return
+		
+		success, message = self.osu_unlocker.read_account_status()
+		
+		if not success:
+			self._log(f"Failed to read account status: {message}", color=(255, 100, 100))
+			return
+		
+		status = self.osu_unlocker.get_status_text()
+		locked = status["locked"]
+		unlock_date = status["unlock_date"]
+		
+		self._log(f"Account scan complete - Locked: {locked}, Unlock Date: {unlock_date}")
+		
+		if self.gui:
+			self.gui.update_osu_unlock_status(locked, unlock_date)
+	
+	def _gui_osu_unlock_unlock(self) -> None:
+		self._log("Attempting to unlock account...")
+		
+		success, message = self.osu_unlocker.unlock_account()
+		
+		if success:
+			self._log("Account unlocked successfully!", color=(100, 255, 100))
+			if self.gui:
+				self.gui.update_osu_unlock_status(False, "None")
+		else:
+			self._log(f"Failed to unlock account: {message}", color=(255, 100, 100))
 	
 	def _get_config_int(self, section: str, option: str, fallback: int) -> int:
 		try:

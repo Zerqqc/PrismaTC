@@ -19,6 +19,8 @@ class ManiaGUI:
 		self.on_exit: Optional[Callable] = None
 		self.on_offset_change: Optional[Callable[[int], None]] = None
 		self.on_timing_shift_change: Optional[Callable[[int], None]] = None
+		self.on_osu_unlock_scan: Optional[Callable] = None
+		self.on_osu_unlock_unlock: Optional[Callable] = None
 
 		self.title_bar_drag = False
 		self._running = False
@@ -169,6 +171,14 @@ class ManiaGUI:
 							dpg.add_text("Q - Enable/Disable bot")
 							dpg.add_text("< > - Adjust timing shift")
 							dpg.add_text("[ ] - Adjust offset")
+						
+						with dpg.collapsing_header(label="Osu Unlocker", default_open=False):
+							dpg.add_button(label="Scan Account Status", tag="osu_unlock_scan_button", width=-1, callback=self._osu_unlock_scan_clicked)
+							dpg.add_separator()
+							dpg.add_text("Account Locked: Not Scanned", tag="osu_unlock_locked_status")
+							dpg.add_text("Unlock Date: Not Scanned", tag="osu_unlock_date_status")
+							dpg.add_separator()
+							dpg.add_button(label="Unlock Account", tag="osu_unlock_button", width=-1, show=False, callback=self._osu_unlock_unlock_clicked)
 					
 					with dpg.child_window(width=-1, height=-1, border=True, tag="log_panel"):
 						with dpg.group(horizontal=True):
@@ -229,6 +239,14 @@ class ManiaGUI:
 			sender = args[0] if args else None
 			value = dpg.get_value(sender) if sender else 0
 			self.on_timing_shift_change(value)
+	
+	def _osu_unlock_scan_clicked(self, *args) -> None:
+		if self.on_osu_unlock_scan:
+			self.on_osu_unlock_scan()
+	
+	def _osu_unlock_unlock_clicked(self, *args) -> None:
+		if self.on_osu_unlock_unlock:
+			self.on_osu_unlock_unlock()
 	
 	def _toggle_log_mode(self, *args) -> None:
 		if self.log_mode == "Normal":
@@ -478,3 +496,12 @@ class ManiaGUI:
 	
 	def is_running(self) -> bool:
 		return self._running
+	
+	def update_osu_unlock_status(self, locked: bool, unlock_date: str = "None") -> None:
+		if dpg.does_item_exist("osu_unlock_locked_status"):
+			dpg.set_value("osu_unlock_locked_status", f"Account Locked: {locked}")
+		if dpg.does_item_exist("osu_unlock_date_status"):
+			dpg.set_value("osu_unlock_date_status", f"Unlock Date: {unlock_date}")
+		
+		if dpg.does_item_exist("osu_unlock_button"):
+			dpg.configure_item("osu_unlock_button", show=locked)
