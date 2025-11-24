@@ -171,6 +171,10 @@ class ManiaGUI:
 							dpg.add_text("Q - Enable/Disable bot")
 							dpg.add_text("< > - Adjust timing shift")
 							dpg.add_text("[ ] - Adjust offset")
+							dpg.add_text("Shift - Offset boost (50% more)")
+							dpg.add_text("Alt - Force miss")
+							dpg.add_text("Ctrl - Press 10% sooner")
+							dpg.add_text("Caps Lock - Press 10% later")
 						
 						with dpg.collapsing_header(label="Osu Unlocker", default_open=False):
 							dpg.add_button(label="Scan Account Status", tag="osu_unlock_scan_button", width=-1, callback=self._osu_unlock_scan_clicked)
