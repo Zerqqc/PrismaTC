@@ -4,6 +4,8 @@
 > Keep in mind that using any kind of 3rd party tools can get you banned.
 > **Use at your own risk.**
 
+> [!IMPORTANT]
+> **CURRENT STATUS:** Undetected (unless blatant)
 ## Preview
 
 ### GUI
