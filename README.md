@@ -15,3 +15,4 @@
 
 https://github.com/user-attachments/assets/694dfcda-13da-4a15-9be3-cc8f6926445b
 
+Convert maps are NOT supported.
