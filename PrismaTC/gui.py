@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
 import threading
+import time
 from typing import Optional, Callable
 from safe_print import safe_print
 import os
@@ -29,7 +30,17 @@ class ManiaGUI:
 			on_exit_callback=self._on_tray_exit
 		)
 	
-	def initialize(self) -> None:
+	def _destroy_context_safe(self) -> None:
+		try:
+			if hasattr(dpg, "is_dearpygui_running") and dpg.is_dearpygui_running():
+				if hasattr(dpg, "stop_dearpygui"):
+					dpg.stop_dearpygui()
+			if hasattr(dpg, "destroy_context"):
+				dpg.destroy_context()
+		except Exception:
+			pass
+
+	def _initialize_once(self) -> None:
 		dpg.create_context()
 		self.viewport = dpg.create_viewport(
 			title="PrismaTC",
@@ -41,14 +52,30 @@ class ManiaGUI:
 		dpg.set_viewport_small_icon("src/logo.ico")
 		dpg.set_viewport_large_icon("src/logo.ico")
 		dpg.setup_dearpygui()
-		
+
 		self._apply_theme()
 		self._load_icon_texture()
 		self._build_gui()
-		
+
 		self.drag_offset_x = 0
 		self.drag_offset_y = 0
 		self.is_dragging = False
+
+	def initialize(self, max_attempts: int = 3) -> None:
+		last_error: Optional[Exception] = None
+		for attempt in range(1, max_attempts + 1):
+			try:
+				if attempt > 1:
+					self._destroy_context_safe()
+					time.sleep(0.35 * attempt)
+				self._initialize_once()
+				return
+			except Exception as exc:
+				last_error = exc
+				safe_print(f"GUI init attempt {attempt}/{max_attempts} failed: {exc}")
+				self._destroy_context_safe()
+		if last_error:
+			raise last_error
 	
 	def _load_icon_texture(self) -> None:
 		icon_path = os.path.join(os.path.dirname(__file__), "src", "logo.png")
@@ -479,10 +506,17 @@ class ManiaGUI:
 	
 	def run(self) -> None:
 		self._running = True
-		dpg.show_viewport()
-		
-		import time
-		time.sleep(0.2)
+		for attempt in range(1, 4):
+			try:
+				dpg.show_viewport()
+				break
+			except Exception as exc:
+				safe_print(f"Viewport show attempt {attempt}/3 failed: {exc}")
+				if attempt == 3:
+					raise
+				time.sleep(0.35 * attempt)
+
+		time.sleep(0.35)
 		self.tray_manager.find_window_handle("PrismaTC")
 		
 		while dpg.is_dearpygui_running():

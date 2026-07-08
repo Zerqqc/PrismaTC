@@ -1,5 +1,6 @@
 import ctypes
 import os
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from memory_reader import GameState, MenuMods, GameplayData, OsuMemoryReader
 from gui import ManiaGUI
 from safe_print import safe_print
 from osu_unlocker import OsuUnlocker
+from startup_guard import ensure_single_instance, enable_crash_logging
 
 import keyboard
 
@@ -230,13 +232,18 @@ class ManiaBotController:
 		self.dll.setOffset(ctypes.c_int(self.offset))
 
 		self.keyboard_listener_thread: Optional[threading.Thread] = None
-		if keyboard is None:
-			safe_print("Keyboard module not available. Shortcut keys disabled.")
-		else:
-			self.keyboard_listener_thread = threading.Thread(target=self._keyboard_listener, daemon=True)
-			self.keyboard_listener_thread.start()
 
 		safe_print("osu! Mania Bot initialized successfully!")
+
+	def _start_keyboard_listener(self) -> None:
+		"""Start global hotkey polling after GUI is ready (avoids hook/OpenGL init races)."""
+		if keyboard is None:
+			safe_print("Keyboard module not available. Shortcut keys disabled.")
+			return
+		if self.keyboard_listener_thread and self.keyboard_listener_thread.is_alive():
+			return
+		self.keyboard_listener_thread = threading.Thread(target=self._keyboard_listener, daemon=True)
+		self.keyboard_listener_thread.start()
 
 	def _log(self, message: str, color: tuple = (255, 255, 255)) -> None:
 		if self.gui and hasattr(self.gui, 'log_message'):
@@ -449,6 +456,39 @@ class ManiaBotController:
 		
 		return special_keys.get(key_name)
 	
+	def _parse_two_key_bind(self, bind_str: str, default_a: str, default_b: str) -> tuple:
+		"""Parse 'key1, key2' binds. Handles [, ] without treating brackets as wrappers."""
+		bind_str = bind_str.strip()
+		if not bind_str or bind_str.startswith(";"):
+			return default_a, default_b
+
+		inner = bind_str
+		if bind_str.startswith("[") and bind_str.endswith("]"):
+			candidate = bind_str[1:-1]
+			parts = [p.strip().lower() for p in candidate.split(",")]
+			if len(parts) == 2 and parts[0] and parts[1]:
+				return parts[0], parts[1]
+
+		keys = [k.strip().lower() for k in inner.split(",")]
+		if len(keys) == 2 and keys[0] and keys[1]:
+			return keys[0], keys[1]
+
+		return default_a, default_b
+
+	def _normalize_shortcut_key(self, key_name: str) -> Optional[str]:
+		if not key_name or not str(key_name).strip():
+			return None
+		key_lower = str(key_name).strip().lower()
+		key_map = {
+			"oemsemicolon": ";",
+			"oem_1": ";",
+			"oem_4": "[",
+			"oem_6": "]",
+			"ralt": "right alt",
+			"rightalt": "right alt",
+		}
+		return key_map.get(key_lower, key_lower)
+
 	def _parse_shortcuts(self) -> dict:
 		shortcuts = {
 			"timing_shift_decrease": "left",
@@ -464,28 +504,26 @@ class ManiaBotController:
 		try:
 			if self.config.has_option("shortcuts", "timing_shift_bind"):
 				bind_str = self.config.get("shortcuts", "timing_shift_bind").strip()
-				if bind_str and not bind_str.startswith(";"):
-					if bind_str.startswith("[") and bind_str.endswith("]"):
-						bind_str = bind_str[1:-1]
-					keys = [k.strip().lower() for k in bind_str.split(",")]
-					if len(keys) == 2:
-						shortcuts["timing_shift_decrease"] = keys[0]
-						shortcuts["timing_shift_increase"] = keys[1]
+				dec, inc = self._parse_two_key_bind(
+					bind_str, shortcuts["timing_shift_decrease"], shortcuts["timing_shift_increase"]
+				)
+				shortcuts["timing_shift_decrease"] = dec
+				shortcuts["timing_shift_increase"] = inc
 			
 			if self.config.has_option("shortcuts", "offset_bind"):
 				bind_str = self.config.get("shortcuts", "offset_bind").strip()
-				if bind_str and not bind_str.startswith(";"):
-					if bind_str.startswith("[") and bind_str.endswith("]"):
-						bind_str = bind_str[1:-1]
-					keys = [k.strip().lower() for k in bind_str.split(",")]
-					if len(keys) == 2:
-						shortcuts["offset_decrease"] = keys[0]
-						shortcuts["offset_increase"] = keys[1]
+				dec, inc = self._parse_two_key_bind(
+					bind_str, shortcuts["offset_decrease"], shortcuts["offset_increase"]
+				)
+				shortcuts["offset_decrease"] = dec
+				shortcuts["offset_increase"] = inc
 			
 			if self.config.has_option("shortcuts", "toggle_bot_bind"):
 				bind_str = self.config.get("shortcuts", "toggle_bot_bind").strip()
 				if bind_str and not bind_str.startswith(";"):
-					shortcuts["toggle_bot"] = bind_str.lower()
+					normalized = self._normalize_shortcut_key(bind_str)
+					if normalized:
+						shortcuts["toggle_bot"] = normalized
 					
 		except Exception as e:
 			safe_print(f"Error parsing shortcuts: {e}")
@@ -522,13 +560,16 @@ class ManiaBotController:
 
 	def run(self) -> None:
 		if self.use_gui and self.gui:
-			self.bot_thread = threading.Thread(target=self._run_bot_logic, daemon=True)
-			self.bot_thread.start()
-			
 			try:
 				self.gui.initialize()
 				self.gui.set_offset(self.offset)
 				self.gui.update_timing_shift(self.timing_shift)
+
+				self.bot_thread = threading.Thread(target=self._run_bot_logic, daemon=True)
+				self.bot_thread.start()
+				time.sleep(0.25)
+				self._start_keyboard_listener()
+
 				self.gui.run()
 			except Exception as e:
 				safe_print(f"GUI ERROR: {e}")
@@ -582,6 +623,28 @@ class ManiaBotController:
 		except Exception:
 			return False
 	
+	def _safe_is_pressed(self, key_name: str) -> bool:
+		normalized = self._normalize_shortcut_key(key_name)
+		if not normalized:
+			return False
+		try:
+			return keyboard.is_pressed(normalized)
+		except ValueError:
+			alt_keys = {
+				"[": "oem_4",
+				"]": "oem_6",
+				";": "oem_1",
+			}
+			alt = alt_keys.get(normalized)
+			if alt:
+				try:
+					return keyboard.is_pressed(alt)
+				except Exception:
+					pass
+			return False
+		except Exception:
+			return False
+
 	def _keyboard_listener(self) -> None:
 		if keyboard is None:
 			return
@@ -602,7 +665,7 @@ class ManiaBotController:
 			try:
 				if self._is_osu_focused():
 					toggle_key = self.shortcuts["toggle_bot"]
-					toggle_pressed = keyboard.is_pressed(toggle_key)
+					toggle_pressed = self._safe_is_pressed(toggle_key)
 					if toggle_pressed and not key_states["toggle_bot"]:
 						self.bot_enabled = not self.bot_enabled
 						if self.bot_enabled:
@@ -631,7 +694,7 @@ class ManiaBotController:
 					continue
 
 				ts_dec_key = self.shortcuts["timing_shift_decrease"]
-				ts_dec_pressed = keyboard.is_pressed(ts_dec_key)
+				ts_dec_pressed = self._safe_is_pressed(ts_dec_key)
 				if ts_dec_pressed and not key_states["timing_shift_decrease"]:
 					self.timing_shift -= 1
 					self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
@@ -644,7 +707,7 @@ class ManiaBotController:
 				key_states["timing_shift_decrease"] = ts_dec_pressed
 
 				ts_inc_key = self.shortcuts["timing_shift_increase"]
-				ts_inc_pressed = keyboard.is_pressed(ts_inc_key)
+				ts_inc_pressed = self._safe_is_pressed(ts_inc_key)
 				if ts_inc_pressed and not key_states["timing_shift_increase"]:
 					self.timing_shift += 1
 					self.dll.setTimingShift(ctypes.c_int(self.timing_shift))
@@ -657,7 +720,7 @@ class ManiaBotController:
 				key_states["timing_shift_increase"] = ts_inc_pressed
 
 				offset_dec_key = self.shortcuts["offset_decrease"]
-				offset_dec_pressed = keyboard.is_pressed(offset_dec_key)
+				offset_dec_pressed = self._safe_is_pressed(offset_dec_key)
 				if offset_dec_pressed and not key_states["offset_decrease"]:
 					self.offset = max(0, self.offset - 1)
 					self.dll.setOffset(ctypes.c_int(self.offset))
@@ -670,7 +733,7 @@ class ManiaBotController:
 				key_states["offset_decrease"] = offset_dec_pressed
 				
 				offset_inc_key = self.shortcuts["offset_increase"]
-				offset_inc_pressed = keyboard.is_pressed(offset_inc_key)
+				offset_inc_pressed = self._safe_is_pressed(offset_inc_key)
 				if offset_inc_pressed and not key_states["offset_increase"]:
 					self.offset += 1
 					self.dll.setOffset(ctypes.c_int(self.offset))
@@ -682,7 +745,7 @@ class ManiaBotController:
 							pass
 				key_states["offset_increase"] = offset_inc_pressed
 				
-				shift_pressed = keyboard.is_pressed('shift')
+				shift_pressed = self._safe_is_pressed('shift')
 				if shift_pressed != key_states["humanize_offset_boost"]:
 					self.dll.setHumanizeOffsetBoost(ctypes.c_bool(shift_pressed))
 					if shift_pressed:
@@ -696,7 +759,7 @@ class ManiaBotController:
 							self.gui.set_offset(self.offset)
 					key_states["humanize_offset_boost"] = shift_pressed
 				
-				alt_pressed = keyboard.is_pressed('alt')
+				alt_pressed = self._safe_is_pressed('alt')
 				if alt_pressed != key_states["humanize_force_miss"]:
 					self.dll.setHumanizeForceMiss(ctypes.c_bool(alt_pressed))
 					if alt_pressed:
@@ -705,7 +768,7 @@ class ManiaBotController:
 						self._log("Humanize: Force miss deactivated", color=(150, 150, 150))
 					key_states["humanize_force_miss"] = alt_pressed
 				
-				ctrl_pressed = keyboard.is_pressed('ctrl')
+				ctrl_pressed = self._safe_is_pressed('ctrl')
 				if ctrl_pressed != key_states["humanize_press_sooner"]:
 					self.dll.setHumanizePressSooner(ctypes.c_bool(ctrl_pressed))
 					if ctrl_pressed:
@@ -714,7 +777,7 @@ class ManiaBotController:
 						self._log("Humanize: Press 10% sooner deactivated", color=(150, 150, 150))
 					key_states["humanize_press_sooner"] = ctrl_pressed
 				
-				caps_pressed = keyboard.is_pressed('caps lock')
+				caps_pressed = self._safe_is_pressed('caps lock')
 				if caps_pressed != key_states["humanize_press_later"]:
 					self.dll.setHumanizePressLater(ctypes.c_bool(caps_pressed))
 					if caps_pressed:
@@ -1261,6 +1324,10 @@ class ManiaBotController:
 
 
 if __name__ == "__main__":
+	enable_crash_logging()
+	if not ensure_single_instance():
+		sys.exit(0)
+
 	try:
 		controller = ManiaBotController(use_gui=True)
 		controller.run()
